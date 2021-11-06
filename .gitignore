@@ -3,10 +3,21 @@
 .Rapp.history
 
 # Session Data files
-.RData
+*.RData
+*.rdata
 
 # User-specific files
 .Ruserdata
+
+# Ignore excel files
+*.csv
+*.xlsx
+
+# Ignore .gpx files
+*.gpx
+
+# Ignore acoustic data
+*.wav
 
 # Example code in package build process
 *-Ex.R

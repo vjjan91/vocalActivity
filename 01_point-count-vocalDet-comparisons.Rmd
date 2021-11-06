@@ -1,0 +1,124 @@
+---
+editor_options: 
+  chunk_output_type: console
+---
+
+# Point count data and vocal detections
+
+Install required libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(stringr)
+library(vegan)
+library(ggplot2)
+library(scico)
+library(data.table)
+library(ggpubr)
+
+# Source any custom/other internal functions necessary for analysis
+source("code/01_internal-functions.R")
+```
+
+Load necessary datasets
+```{r}
+# This is data from Hariharan and Raman (2021), which consists of point counts carried out across 69 sites
+pointCounts <- read.csv("data/point-count-data.csv")
+
+# load list of sites
+sites <- read.csv("data/list-of-sites.csv") %>%
+  filter(Site.code != "OLCAP5B")
+
+# load vocal detections from Ramesh et al. (submitted), which consists of detections from 43 sites (a subset of the sites sampled by Hariharan and Raman 2021)
+vocalData <- read.csv("data/vocal-detections-data.csv")
+
+# load species trait data
+trait <- read.csv("data/species-trait-dat.csv")
+```
+
+
+Extracting abundances from point count dataset
+```{r}
+# 1. filter to include only bird data 
+# 2. combine with trait data
+# 3. Remove '_' in Site_ID
+
+pointCounts <- pointCounts %>% 
+  filter (BirdMamm == "Bird") %>%
+  select(-Remarks) %>% left_join(trait, by = c("Species"="common_name")) %>%
+  mutate(Site_ID = str_replace_all(Site_ID, "_", ""))
+
+# filter to include only sites sampled in Ramesh et al.
+pointCounts <- merge(pointCounts, sites, by.x = "Site_ID", by.y="Site.code")
+
+# add an abundance column across treatment types
+abundTreatment <- pointCounts %>%
+  group_by(Restoration.type) %>%
+  summarise(abundance = sum(Number),
+            detections = n(), 
+    species = n_distinct(Species))
+
+# add an abundance column, grouping by species
+abundSpecies <- pointCounts %>%
+  group_by(Species) %>%
+  summarise(abundance=sum(Number))
+
+# add species trait data to the above dataframe
+abundSpecies <- merge(abundSpecies, trait, by.x = "Species", by.y = "common_name")
+```
+
+
+Extracting abundances from the vocalDet dataset
+```{r}
+# Calculate the overall number of detections for each site where each temporal duration chosen is a 10s clip
+nDetections <- vocalData %>%
+  group_by(Site, Restoration.type) %>%
+  transform() %>% replace(is.na(.), 0) %>% 
+  summarise_at(.vars = vars(c("IP":"HSWP")),.funs = sum) 
+
+# extract total number of detections of each species across the 43 sites
+vocalDetections <- nDetections %>%
+  ungroup() %>%
+  select(IP:HSWP) %>%
+  summarise(across(where(is.numeric), ~ sum(.x))) %>%
+  pivot_longer(cols=IP:HSWP, names_to = "Species", values_to = "vocalDetections")%>%
+  filter(vocalDetections !=0)
+
+# merge the vocalDetections dataset with trait data
+vocalDetections <- merge(vocalDetections, trait, by.x = "Species", by.y = "species_annotation_codes") %>%
+  rename(., "species_annotation_codes"="Species") %>%
+  rename(., "Species"="common_name")
+```
+
+
+Compare the point count abundance data with vocal detections data across species
+```{r}
+
+par(mfrow=c(1,2))
+hist(abundSpecies$abundance)
+hist(vocalDetections$vocalDetections)
+
+```
+
+
+
+
+vocal activity code (if needed)
+```{r}
+# number of visits to each unique site in seconds:
+# This gives you a sense of sampling effort in seconds and minutes at each site
+nSites_visits <- datSubset %>%
+  dplyr::select(Site, Date)%>%
+  distinct() %>% arrange(Site) %>% count(Site) %>%
+  mutate(timeInSeconds = (n*16*60)) %>%
+  mutate(timeInMinutes = (n*16))
+
+# merge the above dataframe with the detections dataframe and calculate vocal activity in minutes
+vocalActivity <- nDetections %>%
+  full_join(nSites_visits, by=c("Site")) %>%
+  mutate_at(.vars = vars(c("IP":"HSWP")), ~.x/timeInMinutes)
+
+```
+
+
+
